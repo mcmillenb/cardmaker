@@ -1,0 +1,1485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>cardmaker</title>
+<style>
+  /* The actual title/type/P&T and rules-text faces real Magic cards use (Beleren and
+     MPlantin), vendored locally alongside the frame art in public/frames — see
+     public/fonts and the CLAUDE.md note on where these come from. */
+  @font-face {
+    font-family: 'Beleren';
+    src: url('/fonts/beleren-b.ttf') format('truetype');
+    /* The file is the Bold cut (OS/2 usWeightClass 700) — declaring that explicitly
+       and requesting weight 700 everywhere it's used avoids the browser synthesizing
+       an extra (faux) bold on top of an already-bold face. */
+    font-weight: 700;
+  }
+  @font-face {
+    font-family: 'MPlantin';
+    src: url('/fonts/mplantin.ttf') format('truetype');
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'MPlantin';
+    src: url('/fonts/mplantin-i.ttf') format('truetype');
+    font-style: italic;
+  }
+  :root {
+    --bg: #16151a;
+    --panel: #201f26;
+    --ink: #ecebe8;
+    --muted: #948f8a;
+    --border: #34323a;
+    --accent: #c25c43;
+    --accent-ink: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 0.95rem; }
+  form {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  input[type="url"], input[type="text"] {
+    flex: 1 1 320px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 1rem;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .face-upload {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .status { margin-top: 16px; color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+  .error { color: #e07a63; }
+  .card-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+  .card-actions button { padding: 9px 14px; font-size: 0.85rem; }
+  .card-error { font-size: 0.9rem; margin: 0 0 14px; white-space: pre-wrap; }
+  .result {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 640px) {
+    .result { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 1.15rem; }
+  .meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 14px; }
+  .oracle { white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; margin: 0 0 14px; }
+  .flavor { white-space: pre-wrap; font-style: italic; color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .art-canvas-wrap {
+    position: relative;
+    line-height: 0;
+  }
+  .art-frame img {
+    width: 100%;
+    border-radius: 8px;
+    display: block;
+    background: var(--bg);
+  }
+  #face-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .face-controls { margin-top: 16px; }
+  .face-controls .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  .face-controls .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .face-controls button { padding: 10px 16px; font-size: 0.9rem; }
+  .face-controls .secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+  .prompt-text { font-size: 0.85rem; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  .deck { margin-top: 28px; }
+  .deck-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .deck-head h2 { margin: 0; font-size: 1.15rem; flex: 1 1 auto; }
+  .deck-head button { padding: 10px 16px; font-size: 0.9rem; }
+  .deck-head .secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .progress { height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; margin-bottom: 16px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+  .tile.done, .tile.error { cursor: pointer; }
+  .tile.done:hover, .tile.error:hover, .tile.selected { border-color: var(--accent); }
+  .tile .thumb {
+    aspect-ratio: 749 / 1044;
+    border-radius: 6px;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 6px;
+    overflow: hidden;
+  }
+  .tile .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile.running .thumb { animation: pulse 1.2s ease-in-out infinite; color: var(--ink); }
+  .tile.error .thumb { color: #e07a63; }
+  @keyframes pulse { 50% { opacity: 0.5; } }
+  .tile .name { font-size: 0.8rem; margin: 8px 2px 0; line-height: 1.3; }
+  .tile .name span { color: var(--muted); }
+  .identity { margin-top: 16px; padding: 14px 16px; }
+  .identity h3 { margin: 0 0 4px; font-size: 0.95rem; }
+  .identity .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  .identity .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .identity .secondary { padding: 8px 14px; font-size: 0.85rem; background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .face-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .face-thumbs figure { margin: 0; width: 64px; text-align: center; font-size: 0.7rem; color: var(--muted); line-height: 1.2; }
+  .face-thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; display: block; margin-bottom: 3px; border: 2px solid transparent; }
+  .face-thumbs .ok img { border-color: var(--accent); }
+  .face-thumbs .bad img { opacity: 0.4; }
+  .face-thumbs .bad { color: #e07a63; }
+  .identity .describe { display: block; margin-top: 12px; color: var(--muted); font-size: 0.85rem; }
+  .identity .describe input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 9px 12px; font-size: 0.9rem; }
+  .face-note { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>cardmaker</h1>
+    <p class="sub">Paste a Scryfall card link or an Archidekt deck link. AI generates artwork from the card's text alone &mdash; it never sees the real illustration.</p>
+
+    <form id="form">
+      <input id="url" type="url" placeholder="https://scryfall.com/card/xln/1/adorned-pouncer  or  https://archidekt.com/decks/123456" required />
+      <button id="submit" type="submit">Go</button>
+    </form>
+
+    <label class="face-upload" for="skip-art">
+      <input id="skip-art" type="checkbox" />
+      Skip AI art generation (fast placeholder art — for testing the card frame/text only)
+    </label>
+
+    <section class="panel identity">
+      <h3>Your face</h3>
+      <p class="hint">Add several photos of the same person (different angles and lighting help). Their face is blended into one identity and swapped onto the main character of every generated card. The swap itself runs locally and free; character cards may be regenerated up to 3 times (extra Cloudflare generations) until the art has a large, front-facing face.</p>
+      <div class="row">
+        <input id="face-photos" type="file" accept="image/*" multiple />
+        <button id="face-clear" type="button" class="secondary" hidden>Remove photos</button>
+      </div>
+      <label class="describe" for="person-desc">
+        Describe their look &mdash; hair, facial hair, glasses, age, skin tone. The swap only replaces the inner face, so this is what makes the rest of the character match.
+        <input id="person-desc" type="text" maxlength="120" placeholder="e.g. man in his 40s, short curly red hair, full beard, glasses" />
+      </label>
+      <label class="face-upload" for="auto-swap">
+        <input id="auto-swap" type="checkbox" checked />
+        Automatically swap this face onto each card as it's generated
+      </label>
+      <p class="face-note" id="identity-status"></p>
+      <div class="face-thumbs" id="face-thumbs"></div>
+    </section>
+
+    <p class="status" id="status"></p>
+
+    <section class="deck" id="deck" hidden>
+      <div class="deck-head">
+        <h2 id="deck-title"></h2>
+        <button id="deck-start" type="button">Start processing</button>
+        <button id="deck-stop" type="button" class="secondary" hidden>Stop after current card</button>
+      </div>
+      <div class="progress"><div id="deck-bar"></div></div>
+      <div class="grid" id="deck-grid"></div>
+    </section>
+
+    <div class="result" id="result" hidden>
+      <div class="panel">
+        <h2 id="c-name"></h2>
+        <p class="meta" id="c-meta"></p>
+        <p class="card-error error" id="c-error" hidden></p>
+        <div class="card-actions">
+          <button id="regen-btn" type="button">Regenerate art</button>
+        </div>
+        <p class="oracle" id="c-oracle"></p>
+        <p class="flavor" id="c-flavor" hidden></p>
+        <details>
+          <summary>Prompt sent to the image model</summary>
+          <p class="prompt-text" id="c-prompt"></p>
+        </details>
+      </div>
+      <div class="panel art-frame" id="art-panel">
+        <div class="art-canvas-wrap" id="art-canvas-wrap">
+          <img id="c-image" alt="Generated card art" />
+          <canvas id="face-canvas"></canvas>
+        </div>
+        <div class="face-controls">
+          <p class="face-note" id="c-face-note" hidden></p>
+          <p class="hint">If the face wasn't swapped, or the wrong character got it, drag an oval over just the face (brow to chin) and swap. Uses the photos under "Your face".</p>
+          <div class="row">
+            <button id="merge-btn" type="button" disabled>Swap face into marked region</button>
+            <button id="clear-region-btn" type="button" class="secondary">Clear marker</button>
+            <button id="revert-btn" type="button" class="secondary" hidden>Revert to original art</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('form');
+    const input = document.getElementById('url');
+    const submitBtn = document.getElementById('submit');
+    const skipArtInput = document.getElementById('skip-art');
+    const statusEl = document.getElementById('status');
+    const resultEl = document.getElementById('result');
+
+    const img = document.getElementById('c-image');
+    const canvas = document.getElementById('face-canvas');
+    const ctx = canvas.getContext('2d');
+    const facePhotosInput = document.getElementById('face-photos');
+    const faceClearBtn = document.getElementById('face-clear');
+    const autoSwapInput = document.getElementById('auto-swap');
+    const identityStatusEl = document.getElementById('identity-status');
+    const faceThumbsEl = document.getElementById('face-thumbs');
+    const faceNoteEl = document.getElementById('c-face-note');
+    const personDescInput = document.getElementById('person-desc');
+    const revertBtn = document.getElementById('revert-btn');
+    const mergeBtn = document.getElementById('merge-btn');
+    const clearRegionBtn = document.getElementById('clear-region-btn');
+
+    let currentImage = null; // data URL of the raw generated art (what face-swap operates on)
+    let region = null; // {x0,y0,x1,y1} in canvas (CSS pixel) space
+    let dragStart = null;
+
+    // ---- Card frame overlay ----
+    // Draws the generated art into a real Magic-card frame (title, mana cost, type
+    // line, rules text, P/T box) so the result looks like an actual card. Frame art
+    // and mana symbols are static local assets (public/frames, public/mana) taken
+    // from the open-source Card Conjurer project — this is pure client-side canvas
+    // compositing, no additional Cloudflare/AI calls or cost involved.
+    const FRAME_W = 749;
+    const FRAME_H = 1044;
+    const LAYOUT = {
+      titleX: 62, titleFontSize: 40,
+      // manaCostY nudged from border.js's original 59 to 63: measured directly off the
+      // rendered frame (scanning for the title pill's actual top/bottom border strokes)
+      // the pill's true vertical center sits at ~80.5, not the ~76.5 that 59 + radius
+      // gives — border.js's numbers were tuned for the original Beleren rendering
+      // pipeline, not necessarily this exact frame crop/scale.
+      manaCostX: 657, manaCostY: 63, manaCostRadius: 17.5, manaCostStep: 39,
+      typeX: 62, typeFontSize: 34,
+      // Measured the same way: the type bar's real top/bottom border strokes center on
+      // this Y, used as the ink-centering target for the type line.
+      typeBarCenterY: 616,
+      // border.js's own "textWidth: 682" is actually the right-edge X coordinate (its
+      // wrap check compares against x + lineWidth directly), not a width from textX —
+      // the real usable width is 682 - 66. Storing the corrected width here directly.
+      // textY is nudged down from the box's literal first interior pixel (656) to give
+      // the text a small top margin instead of sitting flush against the box border.
+      textX: 66, textY: 670, textWidth: 682 - 66,
+      // ptWidth/ptHeight are the box the badge IMAGE is drawn into, not the visible
+      // badge shape — that asset has a lot of untrimmed transparent margin (its own
+      // bounding-box center is well below where the badge actually visually sits), so
+      // ptBadgeCenterY is measured directly off the rendered badge's own top/bottom
+      // border strokes rather than derived from ptY/ptHeight.
+      ptX: 571, ptY: 929, ptWidth: 137, ptHeight: 75, ptTextX: 645, ptBadgeCenterY: 961, ptFontSize: 39,
+      // Lowest Y text ink may reach on a non-creature: the rules-text box's own bottom
+      // border sits at ~969 (scanned off the render), less a little padding. Below it
+      // is the dark bottom-info bar (black text there is invisible).
+      textBoxBottom: 960,
+      // The transparent "hole" in the frame art where generated art shows through,
+      // measured directly off public/frames/*-frame.png by scanning its alpha channel.
+      // The server generates art at exactly this aspect ratio (see server.js's
+      // ART_WIDTH/ART_HEIGHT) so it isn't wasting Cloudflare inference on pixels that
+      // the frame would just cover up anyway.
+      artWindow: { x: 58, y: 118, w: 629, h: 459 },
+    };
+    // Must match server.js's ART_WIDTH/ART_HEIGHT — the pixel size of the raw art the
+    // server actually returns, used to map face-swap region clicks (made against the
+    // full displayed card) back into the smaller raw art's own coordinate space.
+    const ART_WIDTH = 632;
+    const ART_HEIGHT = 464;
+    const MANA_SYMBOL_CODES = [
+      '0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20',
+      'w','u','b','r','g',
+      '2w','2u','2b','2r','2g',
+      'pw','pu','pb','pr','pg',
+      'wu','wb','ub','ur','br','bg','rg','rw','gw','gu',
+      'x','snow','c','t','untap','e',
+    ];
+    const HYBRID_PAIRS = ['WU', 'WB', 'UB', 'UR', 'BR', 'BG', 'RG', 'RW', 'GW', 'GU'];
+
+    const imageCache = new Map();
+    function loadImage(src) {
+      if (!imageCache.has(src)) {
+        imageCache.set(src, new Promise((resolve, reject) => {
+          const im = new Image();
+          im.onload = () => resolve(im);
+          im.onerror = () => reject(new Error(`Could not load ${src}`));
+          im.src = src;
+        }));
+      }
+      return imageCache.get(src);
+    }
+
+    let fontsReadyPromise = null;
+    function fontsReady() {
+      if (!fontsReadyPromise) {
+        fontsReadyPromise = Promise.all([
+          document.fonts.load('700 40px Beleren'),
+          document.fonts.load('400 24px "MPlantin"'),
+          document.fonts.load('italic 400 24px "MPlantin"'),
+        ]).catch(() => {}); // fall back to default fonts if the webfont fails to load
+      }
+      return fontsReadyPromise;
+    }
+
+    function frameCategoryForCard(card) {
+      const typeLine = card.type_line || '';
+      const isLand = /\bLand\b/.test(typeLine);
+      const isArtifact = /\bArtifact\b/.test(typeLine);
+      const colors = card.colors || [];
+      if (isLand) return 'colorlessLand';
+      if (colors.length >= 2) return 'gold';
+      if (colors.length === 1) return { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[colors[0]];
+      if (isArtifact) return 'artifact';
+      return 'colorless';
+    }
+
+    async function getFrameLayer(category, legendary) {
+      const src = `/frames/${category}-${legendary ? 'legendary' : 'frame'}.png`;
+      return loadImage(src);
+    }
+    async function getPtLayer(category) {
+      return loadImage(`/frames/${category}-pt.png`);
+    }
+    async function getManaSymbolImage(code) {
+      const index = MANA_SYMBOL_CODES.indexOf(code);
+      if (index === -1) return null;
+      try {
+        return await loadImage(`/mana/${index}.png`);
+      } catch {
+        return null;
+      }
+    }
+
+    // Converts a Scryfall mana/ability symbol token (the part inside "{...}") to one
+    // of MANA_SYMBOL_CODES, or null if there's no matching icon (falls back to text).
+    function convertManaToken(raw) {
+      const t = raw.toUpperCase();
+      if (/^\d+$/.test(t)) {
+        const n = parseInt(t, 10);
+        return n <= 20 ? String(n) : null;
+      }
+      if (t === 'X' || t === 'Y' || t === 'Z') return t.toLowerCase();
+      if (t === 'T') return 't';
+      if (t === 'Q') return 'untap';
+      if (t === 'C') return 'c';
+      if (t === 'S') return 'snow';
+      if (t === 'E') return 'e';
+      if (/^[WUBRG]$/.test(t)) return t.toLowerCase();
+      if (t.includes('/')) {
+        const parts = t.split('/');
+        if (parts.includes('P')) {
+          const color = parts.find((p) => p !== 'P');
+          return color ? 'p' + color.toLowerCase() : null;
+        }
+        const numPart = parts.find((p) => /^\d+$/.test(p));
+        if (numPart) {
+          const color = parts.find((p) => p !== numPart);
+          return color ? numPart + color.toLowerCase() : null;
+        }
+        const [a, b] = parts;
+        const key = HYBRID_PAIRS.find((p) => p.includes(a) && p.includes(b));
+        return key ? key.toLowerCase() : null;
+      }
+      return null;
+    }
+
+    async function drawManaCost(ctx, manaCost) {
+      // Lands (and some other cards) have no mana cost at all: fall through with no
+      // tokens so this still returns the title's right limit instead of undefined,
+      // which made the title's max width NaN and shrank it to its minimum size.
+      const tokens = [...(manaCost || '').matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
+      const diameter = LAYOUT.manaCostRadius * 2;
+      for (let k = 0; k < tokens.length; k++) {
+        const token = tokens[tokens.length - 1 - k];
+        const x = LAYOUT.manaCostX - k * LAYOUT.manaCostStep;
+        const cx = x + LAYOUT.manaCostRadius;
+        const cy = LAYOUT.manaCostY + LAYOUT.manaCostRadius;
+        // A ring drawn evenly around the whole disc (equal-sized concentric circles)
+        // reads as a border, not a shadow, no matter what shadow settings cast it —
+        // a real drop shadow only shows on the side away from the light. Casting the
+        // backdrop circle's shadow with a clear left/down offset (and no bezel-ring
+        // sizing trick) puts the dark edge only where a shadow should be. The offset
+        // has to be big enough to actually clear the icon drawn on top of it — at this
+        // small a size, downscaling the 600px source icon to ~35px softens its edge by
+        // a couple of pixels, which was swallowing a smaller offset whole (verified by
+        // toggling the icon draw on/off in isolation: the shadow was fine underneath,
+        // just entirely covered).
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+        ctx.shadowBlur = 1;
+        ctx.shadowOffsetX = -5;
+        ctx.shadowOffsetY = 5;
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(cx, cy, LAYOUT.manaCostRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        const code = convertManaToken(token);
+        const img = code ? await getManaSymbolImage(code) : null;
+        if (img) {
+          ctx.drawImage(img, x, LAYOUT.manaCostY, diameter, diameter);
+        } else {
+          ctx.fillStyle = 'white';
+          ctx.font = '16px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(token, cx, cy + 5);
+          ctx.textAlign = 'left';
+        }
+      }
+      return tokens.length
+        ? LAYOUT.manaCostX - (tokens.length - 1) * LAYOUT.manaCostStep
+        : LAYOUT.manaCostX + diameter;
+    }
+
+    // Fits text to a single line by shrinking the font size until it fits maxWidth.
+    function fitSingleLine(ctx, text, family, weight, maxWidth, startSize, minSize = 14) {
+      let size = startSize;
+      while (size > minSize) {
+        ctx.font = `${weight} ${size}px "${family}"`;
+        if (ctx.measureText(text).width <= maxWidth) break;
+        size -= 1;
+      }
+      ctx.font = `${weight} ${size}px "${family}"`;
+      return size;
+    }
+
+    // Draws text so its actual ink (not the font's ascent/descent box, which varies a
+    // lot between fonts and includes room for accents/descenders a title never uses)
+    // is vertically centered on targetCenterY — e.g. level with an adjacent mana pip's
+    // true geometric center. ctx.font must already be set. Requires textBaseline
+    // 'alphabetic' (the canvas default), which this restores when done.
+    // Reads back the actual rendered pixel at (logicalX, logicalY) — used to get the
+    // real local background color for text erosion (see fillTextInkCentered), since
+    // the title/type bar and P/T badge backgrounds vary by color category (and the
+    // legendary crest) in a way that isn't worth hardcoding per case. getImageData
+    // works in device pixels, so the coordinates have to be scaled up by the current
+    // supersampling factor first.
+    function sampleBackground(ctx, logicalX, logicalY, scale) {
+      const d = ctx.getImageData(Math.round(logicalX * scale), Math.round(logicalY * scale), 1, 1).data;
+      return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
+    }
+
+    // Fakes italic by shearing the canvas itself rather than requesting an 'italic'
+    // font style — no italic Beleren file is vendored, and the browser's synthesized
+    // oblique shears around a fixed origin (effectively the alphabetic baseline), not
+    // around whatever text is actually being drawn. P/T text sits almost entirely
+    // above the baseline (tiny descent, tall ascent), so that baseline-anchored shear
+    // drags the whole glyph sideways instead of leaning it in place — it looked
+    // skewed off-center because it *was* being translated, not just slanted.
+    // Shearing manually around pivotY (the same Y the text is already vertically
+    // centered on) keeps the visual center fixed: the top leans one way and the
+    // bottom leans the other by roughly equal amounts, so drawing/measuring code
+    // upstream doesn't need to know this is happening.
+    function withItalicShear(ctx, pivotY, fn) {
+      const SHEAR = 0.19; // ~11 degrees, close to a real italic's slant
+      ctx.save();
+      ctx.transform(1, 0, -SHEAR, 1, SHEAR * pivotY, 0);
+      fn();
+      ctx.restore();
+    }
+
+    function fillTextInkCentered(ctx, text, x, targetCenterY, erodeColor, fontSize) {
+      // actualBoundingBoxAscent/Descent are relative to whatever textBaseline is
+      // active at measurement time, so it must be set to 'alphabetic' BEFORE
+      // measuring, not just before drawing — measuring while a leftover 'top' from an
+      // earlier draw was still active (as happened for the P/T text, which runs right
+      // after the type line resets it) silently produces nonsense offsets.
+      ctx.textBaseline = 'alphabetic';
+      const m = ctx.measureText(text);
+      const halfInk = (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+      const y = targetCenterY + halfInk;
+      ctx.fillText(text, x, y);
+      // Same edge-erosion trick as the rules text (see layoutRulesText) — the vendored
+      // Beleren file is also a visibly heavier cut than the real card's title font.
+      if (erodeColor) {
+        ctx.strokeStyle = erodeColor;
+        ctx.lineWidth = fontSize * 0.022;
+        ctx.strokeText(text, x, y);
+      }
+    }
+
+    // Converts straight quotes/apostrophes (as they come from Scryfall's plain-text
+    // oracle/flavor text) to proper typographic quotes, matching how real cards are
+    // set. Also swaps the Unicode minus sign (U+2212, which Scryfall uses for
+    // planeswalker loyalty costs like "−3:") for a plain hyphen — the vendored
+    // Beleren/MPlantin font files all define that glyph with an empty outline, so it
+    // silently draws as nothing and the loyalty cost looks like it's missing its sign.
+    function smartenText(text) {
+      if (!text) return text;
+      return text
+        .replace(/"([^"]*)"/g, '“$1”')
+        .replace(/'/g, '’')
+        .replace(/−/g, '-');
+    }
+
+    // Scryfall's oracle_text is always the CURRENT rules wording, which for older
+    // cards has been errata'd to self-reference via "this creature"/"this permanent"
+    // instead of the card's own name — but the actual printed card (what this app is
+    // trying to visually match) uses the name. E.g. real Windreaver reads "Windreaver
+    // gains vigilance...", not "This creature gains vigilance...". Reverting that
+    // templating for display isn't perfect for every card/era, but matches the common
+    // case of older creatures with self-referencing activated abilities.
+    function useCardName(text, name) {
+      if (!text || !name) return text;
+      return text.replace(/\bthis creature\b/gi, name);
+    }
+
+    // Word-wraps text (with inline {SYMBOL} tokens rendered as icons) inside a box.
+    // Parenthetical reminder text — e.g. "(Damage and effects that say...)" — is
+    // italicized automatically, same as on a real card. Pass draw=false to just
+    // measure the resulting height without touching the canvas.
+    //
+    // Separate abilities (Scryfall's oracle_text separates them with \n) get a visibly
+    // larger gap than lines that simply wrapped within the same ability — real cards
+    // set body text tight within a paragraph and open up between paragraphs. Card
+    // Conjurer's own renderer (data/borders/m15/border.js + the drawText function in
+    // its index.html) does this the same way: plain wraps advance by "textSize + 1",
+    // while an explicit paragraph break adds a separate "lineSpace" gap on top.
+    async function layoutRulesText(ctx, text, x, maxWidth, startY, fontSize, lineHeight, paragraphGap, draw, baseItalic, erodeColor) {
+      const paragraphs = text.split('\n');
+      let curY = startY;
+      let italic = Boolean(baseItalic);
+      const setFont = () => { ctx.font = `${italic ? 'italic ' : ''}400 ${fontSize}px "MPlantin"`; };
+      setFont();
+      if (draw && erodeColor) { ctx.strokeStyle = erodeColor; ctx.lineWidth = fontSize * 0.022; }
+      for (let p = 0; p < paragraphs.length; p++) {
+        let curX = x;
+        const tokens = paragraphs[p].split(/(\{[^}]+\}|\s+|\(|\))/).filter((t) => t !== '');
+        for (const tok of tokens) {
+          if (/^\{[^}]+\}$/.test(tok)) {
+            const size = fontSize * 0.82;
+            if (curX + size > x + maxWidth) { curX = x; curY += lineHeight; }
+            if (draw) {
+              const code = convertManaToken(tok.slice(1, -1));
+              const img = code ? await getManaSymbolImage(code) : null;
+              if (img) ctx.drawImage(img, curX, curY + fontSize * 0.12, size, size);
+            }
+            curX += size + 3;
+            continue;
+          }
+          if (/^\s+$/.test(tok)) {
+            curX += ctx.measureText(' ').width;
+            continue;
+          }
+          if (tok === '(') { italic = true; setFont(); }
+          const w = ctx.measureText(tok).width;
+          if (curX + w > x + maxWidth && curX > x) { curX = x; curY += lineHeight; }
+          if (draw) {
+            ctx.fillText(tok, curX, curY);
+            // The vendored MPlantin file is a visibly heavier cut than the real card's
+            // body text (confirmed by direct pixel comparison, not a rendering
+            // artifact — supersampling didn't change it). A very thin stroke in the
+            // box's own background color erodes the glyph edges back down closer to
+            // the real weight without needing a different font file.
+            if (erodeColor) ctx.strokeText(tok, curX, curY);
+          }
+          curX += w;
+          if (tok === ')') { italic = Boolean(baseItalic); setFont(); }
+        }
+        curY += lineHeight;
+        if (p < paragraphs.length - 1) curY += paragraphGap;
+      }
+      return curY - lineHeight;
+    }
+
+    // Tight within-paragraph leading (close to Card Conjurer's own "textSize + 1"),
+    // with a distinct, larger gap opening up between separate abilities.
+    const lineHeightFor = (s) => s + 3;
+    const paragraphGapFor = (s) => s * 0.45;
+
+    // Offset from a block's first line top to its last line top at this size (the
+    // same quantity layoutRulesText returns, relative to startY).
+    async function measureTextBlock(ctx, text, size, italic) {
+      return layoutRulesText(ctx, text, LAYOUT.textX, LAYOUT.textWidth, 0, size, lineHeightFor(size), paragraphGapFor(size), false, italic);
+    }
+
+    function drawTextBlock(ctx, text, startY, size, italic, erodeColor) {
+      ctx.fillStyle = 'black';
+      ctx.textBaseline = 'top';
+      return layoutRulesText(ctx, text, LAYOUT.textX, LAYOUT.textWidth, startY, size, lineHeightFor(size), paragraphGapFor(size), true, italic, erodeColor);
+    }
+
+    // Rules text at the top of the box and flavor text set against its bottom, the
+    // way real cards lay them out, with whatever room is left over opening up between
+    // them. Both shrink together until rules + a minimum gap + flavor fit; if they
+    // can't fit even at the smallest size, the flavor text is dropped. bottomLimit
+    // is the lowest Y the ink may reach, as in fitAndDrawRulesText.
+    async function fitAndDrawRulesAndFlavor(ctx, rules, flavor, startY, bottomLimit, maxRulesSize, maxFlavorSize, minSize, erodeColor) {
+      const minGapFor = (s) => s * 0.6;
+      for (let rulesSize = maxRulesSize; rulesSize >= minSize; rulesSize--) {
+        const flavorSize = Math.min(maxFlavorSize, rulesSize);
+        const rulesExtent = await measureTextBlock(ctx, rules, rulesSize, false);
+        const flavorExtent = await measureTextBlock(ctx, flavor, flavorSize, true);
+        const needed = rulesExtent + lineHeightFor(rulesSize) + minGapFor(rulesSize) + flavorExtent + flavorSize;
+        if (startY + needed <= bottomLimit) {
+          await drawTextBlock(ctx, rules, startY, rulesSize, false, erodeColor);
+          await drawTextBlock(ctx, flavor, bottomLimit - flavorSize - flavorExtent, flavorSize, true, erodeColor);
+          return;
+        }
+      }
+      await fitAndDrawRulesText(ctx, rules, LAYOUT.textX, LAYOUT.textWidth, startY, bottomLimit, maxRulesSize, minSize, false, erodeColor);
+    }
+
+    // bottomLimit is the lowest Y the ink may reach. With textBaseline 'top', a line's
+    // glyphs (descenders included) extend about one font size below its top.
+    async function fitAndDrawRulesText(ctx, text, x, maxWidth, startY, bottomLimit, startSize, minSize, italic, erodeColor) {
+      ctx.fillStyle = 'black';
+      ctx.textBaseline = 'top';
+      let size = startSize;
+      while (size > minSize) {
+        const endY = await layoutRulesText(ctx, text, x, maxWidth, startY, size, lineHeightFor(size), paragraphGapFor(size), false, italic);
+        if (endY + size <= bottomLimit) break;
+        size -= 1;
+      }
+      const endY = await layoutRulesText(ctx, text, x, maxWidth, startY, size, lineHeightFor(size), paragraphGapFor(size), true, italic, erodeColor);
+      return endY + lineHeightFor(size);
+    }
+
+    // Composites the generated art into a real card frame. Returns a PNG data URL.
+    // Pure canvas image work — no network calls, no Cloudflare/AI usage.
+    async function composeCard(card, artSrc) {
+      await fontsReady();
+      const category = frameCategoryForCard(card);
+      const legendary = /\bLegendary\b/.test(card.type_line || '');
+      const isCreature = Boolean(card.power && card.toughness);
+      const name = smartenText(card.name) || '';
+      const typeLine = smartenText(card.type_line) || '';
+      const oracleText = smartenText(useCardName(card.oracle_text, card.name));
+      const flavorText = smartenText(card.flavor_text);
+
+      const [artImg, frameImg, legendaryImg, ptImg] = await Promise.all([
+        loadImage(artSrc),
+        getFrameLayer(category, false),
+        legendary ? getFrameLayer(category, true) : Promise.resolve(null),
+        isCreature ? getPtLayer(category) : Promise.resolve(null),
+      ]);
+
+      // Supersample at 2x and downscale at the end — canvas text (unlike DOM text)
+      // isn't hinted for the size it's drawn at, so rendering the fine serifs of
+      // MPlantin/Beleren directly at this canvas's native ~30-40px text sizes comes
+      // out visibly heavier/blockier than the same font at real size. Drawing at 2x
+      // and resampling down gives the antialiasing enough resolution to thin back out
+      // to the correct weight.
+      const SS = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = FRAME_W * SS;
+      canvas.height = FRAME_H * SS;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SS, SS);
+
+      const aw = LAYOUT.artWindow;
+      ctx.drawImage(artImg, aw.x, aw.y, aw.w, aw.h);
+      ctx.drawImage(frameImg, 0, 0, FRAME_W, FRAME_H);
+      // legendary.png is just the ornate title-bar crest, layered on top of the
+      // regular frame (not a full frame replacement) — see data/borders/m15/border.js.
+      if (legendaryImg) ctx.drawImage(legendaryImg, 0, 0, FRAME_W, FRAME_H);
+      if (isCreature && ptImg) {
+        ctx.drawImage(ptImg, LAYOUT.ptX, LAYOUT.ptY, LAYOUT.ptWidth, LAYOUT.ptHeight);
+      }
+
+      // Sampled BEFORE the corresponding text is drawn, so each read is guaranteed to
+      // land on real background — the title/type bar and P/T badge backgrounds vary a
+      // lot by color category (and the legendary crest), not worth hardcoding per case.
+      const titleBarBg = sampleBackground(ctx, LAYOUT.titleX + 5, LAYOUT.manaCostY + LAYOUT.manaCostRadius, SS);
+      const typeBarBg = sampleBackground(ctx, LAYOUT.typeX + 5, LAYOUT.typeBarCenterY, SS);
+
+      const manaCostLeftEdge = await drawManaCost(ctx, card.mana_cost);
+
+      ctx.fillStyle = 'black';
+      // Centered on the mana pips' own vertical center (an exact geometric circle),
+      // using actual glyph ink rather than a fixed top-Y — 'top'/'middle' baselines
+      // are relative to each font's ascent/descent metrics, which vary a lot between
+      // fonts and don't line up with where the pips visually sit.
+      const manaCostCenterY = LAYOUT.manaCostY + LAYOUT.manaCostRadius;
+      const maxTitleWidth = manaCostLeftEdge - LAYOUT.titleX - 14;
+      const titleSize = fitSingleLine(ctx, name, 'Beleren', 700, maxTitleWidth, LAYOUT.titleFontSize, 18);
+      fillTextInkCentered(ctx, name, LAYOUT.titleX, manaCostCenterY, titleBarBg, titleSize);
+
+      const typeSize = fitSingleLine(ctx, typeLine, 'Beleren', 700, FRAME_W - LAYOUT.typeX * 2, LAYOUT.typeFontSize, 16);
+      fillTextInkCentered(ctx, typeLine, LAYOUT.typeX, LAYOUT.typeBarCenterY, typeBarBg, typeSize);
+      ctx.textBaseline = 'top';
+
+      if (isCreature) {
+        const ptBadgeBg = sampleBackground(ctx, LAYOUT.ptX + 15, LAYOUT.ptBadgeCenterY - 15, SS);
+        const pt = `${card.power}/${card.toughness}`;
+        const maxPtWidth = LAYOUT.ptWidth - 55;
+        // Real cards set the P/T box in italic Beleren Bold, unlike the upright title/
+        // type text. Sizing/measuring stays on the upright metrics; only the pixels
+        // get slanted (see withItalicShear) so the fit-width and centering math above
+        // doesn't need to reason about a slanted glyph's bounding box.
+        const ptSize = fitSingleLine(ctx, pt, 'Beleren', 700, maxPtWidth, LAYOUT.ptFontSize, 18);
+        const w = ctx.measureText(pt).width;
+        withItalicShear(ctx, LAYOUT.ptBadgeCenterY, () => {
+          fillTextInkCentered(ctx, pt, LAYOUT.ptTextX - w / 2, LAYOUT.ptBadgeCenterY, ptBadgeBg, ptSize);
+        });
+        ctx.textBaseline = 'top';
+      }
+
+      // The text box's own bottom border sits at ~969 regardless of creature status
+      // (measured directly off the render) — FRAME_H - 60 (984) was past that border,
+      // onto the black bottom-info-bar strip, so text could land there and vanish
+      // (black-on-black). For creatures the P/T badge overlaps the box's bottom-right,
+      // so text has to stop above that badge (ptY is the top of its image, a few px
+      // above the visible badge) so wrapped lines never crowd its left edge.
+      const textBottom = isCreature ? LAYOUT.ptY + 2 : LAYOUT.textBoxBottom;
+      // 32 is the largest that still comfortably fits a full text box's worth of
+      // wrapped rules text at this canvas scale (~1 pt shy of the real card's own body
+      // text size, measured off a reference card image) — short text should render at
+      // (up to) this size rather than always defaulting to something small.
+      const MAX_RULES_SIZE = 32;
+      const MAX_FLAVOR_SIZE = 26;
+      // Sampled before any rules/flavor text is drawn, so any point in the box is
+      // guaranteed to still be plain background.
+      const textBoxBg = sampleBackground(ctx, LAYOUT.textX + 5, LAYOUT.textY + 5, SS);
+      if (oracleText && flavorText) {
+        await fitAndDrawRulesAndFlavor(
+          ctx, oracleText, flavorText, LAYOUT.textY, textBottom, MAX_RULES_SIZE, MAX_FLAVOR_SIZE, 10, textBoxBg
+        );
+      } else if (oracleText || flavorText) {
+        await fitAndDrawRulesText(
+          ctx, oracleText || flavorText, LAYOUT.textX, LAYOUT.textWidth, LAYOUT.textY, textBottom,
+          oracleText ? MAX_RULES_SIZE : MAX_FLAVOR_SIZE, oracleText ? 10 : 13, !oracleText, textBoxBg
+        );
+      }
+
+      const out = document.createElement('canvas');
+      out.width = FRAME_W;
+      out.height = FRAME_H;
+      const outCtx = out.getContext('2d');
+      outCtx.imageSmoothingQuality = 'high';
+      outCtx.drawImage(canvas, 0, 0, FRAME_W, FRAME_H);
+      return out.toDataURL('image/png');
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function syncCanvasSize() {
+      canvas.width = img.clientWidth;
+      canvas.height = img.clientHeight;
+      drawRegion();
+    }
+    window.addEventListener('resize', syncCanvasSize);
+    img.addEventListener('load', syncCanvasSize);
+
+    function drawRegion() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!region) return;
+      const { x0, y0, x1, y1 } = region;
+      const cx = (x0 + x1) / 2;
+      const cy = (y0 + y1) / 2;
+      const rx = Math.abs(x1 - x0) / 2;
+      const ry = Math.abs(y1 - y0) / 2;
+      ctx.save();
+      ctx.strokeStyle = '#c25c43';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function updateMergeButtonState() {
+      // region is optional (server falls back to the largest detected face); an identity isn't.
+      mergeBtn.disabled = !faceIdentity || !!identityBuilding;
+    }
+
+    // ---- Face identity (several photos of one person, blended into one embedding) ----
+    let faceIdentity = null; // { embedding: number[512], used, total }
+    let identityBuilding = null; // promise while /api/face-identity is in flight
+
+    // Phone photos can be 5-10MB each; the detector works at 640px anyway, so shrink
+    // before uploading rather than posting tens of MB.
+    async function downscalePhoto(file, maxSide = 1280) {
+      // Not loadImage(): that caches by src forever, and these are multi-MB data URLs.
+      const im = new Image();
+      im.src = await readFileAsDataUrl(file);
+      await im.decode();
+      const scale = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(im.naturalWidth * scale);
+      c.height = Math.round(im.naturalHeight * scale);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.92);
+    }
+
+    const PHOTO_STATUS_TEXT = {
+      ok: 'used',
+      'no-face': 'no face found',
+      unreadable: 'unreadable',
+      'different-person': 'looks like someone else',
+    };
+
+    function renderFaceThumbs(photos, statuses) {
+      faceThumbsEl.replaceChildren();
+      photos.forEach((src, i) => {
+        const fig = document.createElement('figure');
+        const status = statuses?.[i]?.status;
+        if (status) fig.className = status === 'ok' ? 'ok' : 'bad';
+        const im = document.createElement('img');
+        im.src = src;
+        fig.appendChild(im);
+        fig.append(status ? PHOTO_STATUS_TEXT[status] || status : '…');
+        faceThumbsEl.appendChild(fig);
+      });
+    }
+
+    async function buildIdentity(files) {
+      faceIdentity = null;
+      faceClearBtn.hidden = false;
+      identityStatusEl.classList.remove('error');
+      identityStatusEl.textContent = `Reading ${files.length} photo${files.length > 1 ? 's' : ''}…`;
+      updateMergeButtonState();
+      const photos = await Promise.all(files.map((f) => downscalePhoto(f)));
+      renderFaceThumbs(photos);
+      identityStatusEl.textContent = 'Finding the face in each photo…';
+      try {
+        const resp = await fetch('/api/face-identity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photos }),
+        });
+        const data = await resp.json();
+        renderFaceThumbs(photos, data.photos);
+        if (!resp.ok) throw new Error(data.error || 'Could not build the face identity.');
+        faceIdentity = { embedding: data.embedding, used: data.used, total: photos.length };
+        saveIdentity();
+        // A starting point from the detector's age/sex estimate; the user adds the
+        // hair, beard, glasses etc. that the detector can't describe.
+        if (!personDescInput.value.trim() && data.sex && data.age) {
+          personDescInput.value = `${data.sex === 'M' ? 'man' : 'woman'} around ${data.age} years old`;
+          personDescInput.dispatchEvent(new Event('input'));
+        }
+        identityStatusEl.textContent = `Face ready — blended from ${data.used} of ${photos.length} photo${photos.length > 1 ? 's' : ''}.`;
+      } catch (err) {
+        identityStatusEl.textContent = err.message;
+        identityStatusEl.classList.add('error');
+      }
+    }
+
+    facePhotosInput.addEventListener('change', async () => {
+      const files = [...facePhotosInput.files];
+      if (!files.length) return;
+      identityBuilding = buildIdentity(files);
+      try {
+        await identityBuilding;
+      } finally {
+        identityBuilding = null;
+        updateMergeButtonState();
+      }
+    });
+
+    // The blended face (just the 512-number embedding, not the photos) and the
+    // description are kept in this browser's localStorage, so a reload can still
+    // regenerate cards with the face without re-adding the photos.
+    const IDENTITY_KEY = 'cardmaker.faceIdentity';
+    const DESCRIPTION_KEY = 'cardmaker.personDescription';
+    function saveIdentity() {
+      try {
+        if (faceIdentity) localStorage.setItem(IDENTITY_KEY, JSON.stringify(faceIdentity));
+        else localStorage.removeItem(IDENTITY_KEY);
+      } catch {}
+    }
+    personDescInput.addEventListener('input', () => {
+      try { localStorage.setItem(DESCRIPTION_KEY, personDescInput.value); } catch {}
+    });
+    try {
+      const stored = JSON.parse(localStorage.getItem(IDENTITY_KEY));
+      if (stored?.embedding?.length === 512) {
+        faceIdentity = stored;
+        faceClearBtn.hidden = false;
+        identityStatusEl.textContent = `Face restored from your last session (blended from ${stored.used} photo${stored.used === 1 ? '' : 's'}).`;
+      }
+      personDescInput.value = localStorage.getItem(DESCRIPTION_KEY) || '';
+    } catch {}
+
+    faceClearBtn.addEventListener('click', () => {
+      faceIdentity = null;
+      saveIdentity();
+      facePhotosInput.value = '';
+      faceThumbsEl.replaceChildren();
+      identityStatusEl.textContent = '';
+      faceClearBtn.hidden = true;
+      updateMergeButtonState();
+    });
+
+    async function requestSwap(image, regionPx) {
+      const resp = await fetch('/api/merge-face', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: await toDataUrl(image), embedding: faceIdentity.embedding, region: regionPx }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        const err = new Error(data.error || 'Face swap failed.');
+        err.code = data.code;
+        throw err;
+      }
+      return data;
+    }
+
+    function shouldAutoSwap() {
+      return !!faceIdentity && autoSwapInput.checked && !skipArtInput.checked;
+    }
+
+    // Extra /api/render fields when a face is going to be swapped in.
+    function faceRenderOptions() {
+      return shouldAutoSwap()
+        ? { faceFocus: true, personDescription: personDescInput.value.trim() }
+        : {};
+    }
+
+    // Swaps the identity onto a freshly rendered card's largest face. Never throws: art
+    // with no face (lands, dragons, landscapes) is common and just keeps its original art.
+    async function autoSwapFace(data) {
+      if (!shouldAutoSwap()) return;
+      try {
+        const { image: swapped } = await requestSwap(data.image, undefined);
+        data.originalImage = data.image;
+        data.image = swapped;
+        data.faceNote = 'Your face was swapped onto the main character.';
+        if (data.faceCheck && !data.faceCheck.usable) {
+          data.faceNote += ` None of the ${data.faceCheck.attempts} generations had a large, front-facing face, so this is the best of them — mark the face and swap again if it's off.`;
+        } else if (data.faceCheck?.attempts > 1) {
+          data.faceNote += ` (Took ${data.faceCheck.attempts} generations to get a usable face.)`;
+        }
+      } catch (err) {
+        data.faceNote = err.code === 'no-target-face'
+          ? 'No face was found in this art, so it was left as generated.'
+          : err.message;
+      }
+    }
+
+    function canvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      const p = canvasPos(e);
+      dragStart = p;
+      region = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      drawRegion();
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragStart) return;
+      const p = canvasPos(e);
+      region = { x0: dragStart.x, y0: dragStart.y, x1: p.x, y1: p.y };
+      drawRegion();
+    });
+    canvas.addEventListener('pointerup', () => {
+      dragStart = null;
+      updateMergeButtonState();
+    });
+
+    clearRegionBtn.addEventListener('click', () => {
+      region = null;
+      dragStart = null;
+      drawRegion();
+      updateMergeButtonState();
+    });
+
+    // The displayed image is the full framed card, but the face-swap request goes to
+    // the small raw art the server actually returns (just the art-window crop) — so a
+    // dragged region has to be reprojected: canvas(CSS) -> displayed-card-natural ->
+    // (offset/scaled by the art window) -> raw art's own pixel space.
+    function regionToImagePixels() {
+      const scaleX = img.naturalWidth / canvas.width;
+      const scaleY = img.naturalHeight / canvas.height;
+      const { x0, y0, x1, y1 } = region;
+      const aw = LAYOUT.artWindow;
+      const toArtX = (px) => (px * scaleX - aw.x) * (ART_WIDTH / aw.w);
+      const toArtY = (py) => (py * scaleY - aw.y) * (ART_HEIGHT / aw.h);
+      const ax0 = toArtX(x0);
+      const ax1 = toArtX(x1);
+      const ay0 = toArtY(y0);
+      const ay1 = toArtY(y1);
+      return {
+        cx: (ax0 + ax1) / 2,
+        cy: (ay0 + ay1) / 2,
+        rx: Math.abs(ax1 - ax0) / 2,
+        ry: Math.abs(ay1 - ay0) / 2,
+      };
+    }
+
+    mergeBtn.addEventListener('click', async () => {
+      if (!faceIdentity || !currentItem?.data) return;
+      const item = currentItem;
+      const data = item.data;
+
+      mergeBtn.disabled = true;
+      statusEl.classList.remove('error');
+      statusEl.textContent = 'Swapping the face in (usually a few seconds)…';
+
+      try {
+        const { image: swapped, approximate } = await requestSwap(data.image, region ? regionToImagePixels() : undefined);
+        if (!data.originalImage) data.originalImage = data.image;
+        data.image = swapped;
+        data.framedImage = await composeCard(data.card, swapped);
+        data.faceNote = approximate
+          ? "The detector couldn't find a face there, so your face was fitted to the marked oval — mark just the face (brow to chin) for the best fit."
+          : 'Your face was swapped in manually.';
+        await persistCard(data);
+        renderTile(item);
+        if (currentItem === item) await showItem(item);
+        statusEl.textContent = 'Face swapped in. You can mark another region to try again.';
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.classList.add('error');
+      } finally {
+        updateMergeButtonState();
+      }
+    });
+
+    revertBtn.addEventListener('click', async () => {
+      const item = currentItem;
+      const data = item?.data;
+      if (!data?.originalImage) return;
+      data.image = data.originalImage;
+      delete data.originalImage;
+      data.framedImage = await composeCard(data.card, data.image);
+      data.faceNote = 'Reverted to the original generated art.';
+      try {
+        await persistCard(data);
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.classList.add('error');
+      }
+      renderTile(item);
+      if (currentItem === item) await showItem(item);
+    });
+
+    // ---- Saved cards ----
+    // The server saves every render under data/cards/{scryfallId}/; this pushes
+    // client-side changes (face swaps, revert) back to it. Saved art comes back as
+    // /data/cards/... URLs rather than data URLs.
+    async function persistCard(data) {
+      if (!data.saved || !data.card?.id) return;
+      const resp = await fetch(`/api/cards/${data.card.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: data.image, originalImage: data.originalImage || null, faceNote: data.faceNote }),
+      });
+      const saved = await resp.json();
+      if (!resp.ok) throw new Error(`Couldn't save this card: ${saved.error || resp.status}`);
+      data.image = saved.image;
+      data.originalImage = saved.originalImage;
+    }
+
+    // The face-swap server needs the pixels themselves, not a /data/cards URL.
+    async function toDataUrl(src) {
+      if (src.startsWith('data:')) return src;
+      const blob = await (await fetch(src)).blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    // What to reopen after a page reload: the last deck, or the last single card.
+    const LAST_OPENED_KEY = 'cardmaker.lastOpened';
+    function rememberLastOpened(value) {
+      try { localStorage.setItem(LAST_OPENED_KEY, JSON.stringify(value)); } catch {}
+    }
+
+    // ---- Card items ----
+    // Every card shown — a deck tile or the single card from a Scryfall link — is an
+    // item: { card: { scryfallId, name, ... }, state: queued|running|done|error,
+    // data (render result, once there is one), error, el (deck tile, if any) }.
+    // An item can be done and still carry an error: a failed regeneration keeps the
+    // previous art.
+    const regenBtn = document.getElementById('regen-btn');
+    const artPanel = document.getElementById('art-panel');
+    const cardErrorEl = document.getElementById('c-error');
+    let currentItem = null;
+    let singleItem = null;
+
+    async function generateItem(item, { useSaved = false, url } = {}) {
+      item.state = 'running';
+      item.phase = 'Generating…';
+      item.error = null;
+      renderTile(item);
+      if (currentItem === item) await showItem(item);
+      try {
+        if (identityBuilding) await identityBuilding.catch(() => {});
+        const data = await postJson('/api/render', {
+          ...(item.card.scryfallId ? { scryfallId: item.card.scryfallId } : { url }),
+          useSaved,
+          skipArt: skipArtInput.checked,
+          ...faceRenderOptions(),
+        });
+        // Saved art (fromSaved) already had its face swap done when it was generated.
+        if (!data.fromSaved && shouldAutoSwap()) {
+          item.phase = 'Swapping face…';
+          renderTile(item);
+          await autoSwapFace(data);
+          await persistCard(data).catch((err) => { data.faceNote = `${data.faceNote || ''} ${err.message}`.trim(); });
+        }
+        data.framedImage = await composeCard(data.card, data.image);
+        item.card.scryfallId = item.card.scryfallId || data.card.id;
+        item.card.name = data.card.name;
+        item.data = data;
+        item.state = 'done';
+      } catch (err) {
+        item.error = err.message;
+        // Keep showing the previous art if this was a regeneration.
+        item.state = item.data ? 'done' : 'error';
+      }
+      renderTile(item);
+      if (currentItem === item) await showItem(item);
+    }
+
+    // Shows an item in the detail panel — including one that failed before it ever had
+    // art, so its error is readable and it can be retried.
+    async function showItem(item) {
+      currentItem = item;
+      const isRunning = item.state === 'running';
+      regenBtn.textContent = isRunning ? 'Generating…' : item.data ? 'Regenerate art' : 'Retry';
+      regenBtn.disabled = isRunning || running;
+      cardErrorEl.textContent = item.error
+        ? item.data ? `Regenerating failed, so the previous art is still shown: ${item.error}` : item.error
+        : '';
+      cardErrorEl.hidden = !item.error;
+      if (item.data) {
+        await showResult(item.data);
+      } else {
+        document.getElementById('c-name').textContent = item.card.name;
+        document.getElementById('c-meta').textContent = isRunning ? 'Generating…' : '';
+        document.getElementById('c-oracle').textContent = '';
+        document.getElementById('c-flavor').hidden = true;
+        document.getElementById('c-prompt').textContent = '';
+        artPanel.hidden = true;
+        resultEl.hidden = false;
+      }
+    }
+
+    regenBtn.addEventListener('click', async () => {
+      const item = currentItem;
+      if (!item || item.state === 'running' || running) return;
+      statusEl.classList.remove('error');
+      statusEl.textContent = `Regenerating ${item.card.name}…`;
+      await generateItem(item, { useSaved: false, url: item === singleItem ? input.value.trim() : undefined });
+      statusEl.textContent = item.error ? '' : `Regenerated ${item.card.name}.`;
+      if (deckItems.includes(item)) updateProgress();
+    });
+
+    async function showResult(data) {
+      const { card, prompt, image } = data;
+      currentImage = image;
+      region = null;
+      drawRegion();
+
+      document.getElementById('c-name').textContent = card.name;
+      const metaParts = [card.type_line, card.mana_cost, card.set_name, card.rarity]
+        .filter(Boolean);
+      if (card.power && card.toughness) metaParts.push(`${card.power}/${card.toughness}`);
+      document.getElementById('c-meta').textContent = metaParts.join(' • ');
+      document.getElementById('c-oracle').textContent = card.oracle_text || '';
+
+      const flavorEl = document.getElementById('c-flavor');
+      if (card.flavor_text) {
+        flavorEl.textContent = card.flavor_text;
+        flavorEl.hidden = false;
+      } else {
+        flavorEl.hidden = true;
+      }
+
+      document.getElementById('c-prompt').textContent = prompt;
+
+      if (!data.framedImage) data.framedImage = await composeCard(card, image);
+      img.src = data.framedImage;
+
+      faceNoteEl.textContent = data.faceNote || '';
+      faceNoteEl.hidden = !data.faceNote;
+      revertBtn.hidden = !data.originalImage;
+      updateMergeButtonState();
+      artPanel.hidden = false;
+      resultEl.hidden = false;
+    }
+
+    async function postJson(path, body) {
+      const resp = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Something went wrong.');
+      return data;
+    }
+
+    // ---- Deck mode ----
+    const deckEl = document.getElementById('deck');
+    const deckTitle = document.getElementById('deck-title');
+    const deckGrid = document.getElementById('deck-grid');
+    const deckBar = document.getElementById('deck-bar');
+    const deckStart = document.getElementById('deck-start');
+    const deckStop = document.getElementById('deck-stop');
+
+    let deckItems = [];
+    let running = false;
+    let stopRequested = false;
+    let selectedItem = null;
+    let followLatest = true;
+
+    function renderTile(item) {
+      const { el, card, state } = item;
+      if (!el) return; // the single-card item has no tile
+      el.className = `tile ${state}${item === selectedItem ? ' selected' : ''}`;
+      const thumb = el.querySelector('.thumb');
+      thumb.replaceChildren();
+      if (item.data && state !== 'running') {
+        const im = document.createElement('img');
+        im.src = item.data.framedImage || item.data.image;
+        im.alt = card.name;
+        thumb.appendChild(im);
+      } else if (state === 'error') {
+        thumb.textContent = `${item.error} — click to view or retry`;
+      } else {
+        thumb.textContent = state === 'running' ? (item.phase || 'Generating…') : 'Queued';
+      }
+    }
+
+    function updateProgress() {
+      const finished = deckItems.filter((i) => i.state === 'done' || i.state === 'error').length;
+      deckBar.style.width = `${deckItems.length ? (finished / deckItems.length) * 100 : 0}%`;
+      const done = deckItems.filter((i) => i.state === 'done').length;
+      const failed = deckItems.filter((i) => i.state === 'error').length;
+      const left = deckItems.length - finished;
+      deckStart.textContent = running ? 'Processing…' : left === 0 && !failed ? 'Done' : finished === 0 ? 'Start processing' : 'Resume processing';
+      deckStart.disabled = running || (left === 0 && !failed);
+      deckStop.hidden = !running;
+      if (currentItem) regenBtn.disabled = running || currentItem.state === 'running';
+      if (!running || left === 0) {
+        statusEl.classList.remove('error');
+        statusEl.textContent = deckItems.length
+          ? `${done} of ${deckItems.length} generated${failed ? `, ${failed} failed (click one to see why; Resume retries them)` : ''}.`
+          : '';
+      }
+    }
+
+    function selectItem(item, scroll = false) {
+      const prev = selectedItem;
+      selectedItem = item;
+      if (prev) renderTile(prev);
+      renderTile(item);
+      showItem(item);
+      if (scroll) resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function loadDeck(deck) {
+      deckItems = [];
+      selectedItem = null;
+      currentItem = null;
+      followLatest = true;
+      deckGrid.replaceChildren();
+      const seen = new Set();
+      for (const card of deck.cards) {
+        if (seen.has(card.scryfallId)) continue;
+        seen.add(card.scryfallId);
+        const el = document.createElement('div');
+        el.innerHTML = '<div class="thumb"></div><p class="name"></p>';
+        const label = el.querySelector('.name');
+        label.textContent = card.name;
+        const extra = [card.quantity > 1 ? `×${card.quantity}` : null, card.category].filter(Boolean);
+        if (extra.length) {
+          const span = document.createElement('span');
+          span.textContent = ` · ${extra.join(' · ')}`;
+          label.appendChild(span);
+        }
+        const item = { card: { ...card }, state: 'queued', el };
+        el.addEventListener('click', () => {
+          if (item.state === 'done' || item.state === 'error') selectItem(item, true);
+        });
+        deckItems.push(item);
+        deckGrid.appendChild(el);
+        renderTile(item);
+      }
+      const total = deck.cards.reduce((n, c) => n + c.quantity, 0);
+      deckTitle.textContent = `${deck.name} — ${total} cards (${deckItems.length} unique)${deck.cached ? ' (saved copy — Archidekt was unreachable)' : ''}`;
+      deckEl.hidden = false;
+      updateProgress();
+    }
+
+    // Marks deck cards that already have saved art as done, then frames their
+    // thumbnails one at a time in the background.
+    async function restoreSavedDeckCards() {
+      const { cards } = await postJson('/api/cards/lookup', { ids: deckItems.map((i) => i.card.scryfallId) });
+      const restored = deckItems.filter((i) => cards[i.card.scryfallId]);
+      for (const item of restored) {
+        item.data = cards[item.card.scryfallId];
+        item.state = 'done';
+        renderTile(item);
+      }
+      updateProgress();
+      for (const item of restored) {
+        if (item.data.framedImage) continue;
+        item.data.framedImage = await composeCard(item.data.card, item.data.image);
+        renderTile(item);
+      }
+    }
+
+    async function openDeck(url) {
+      statusEl.textContent = 'Loading deck from Archidekt…';
+      loadDeck(await postJson('/api/deck', { url }));
+      rememberLastOpened({ type: 'deck', url });
+      await restoreSavedDeckCards();
+    }
+
+    async function processDeck() {
+      running = true;
+      stopRequested = false;
+      updateProgress();
+      for (const item of deckItems) {
+        if (stopRequested) break;
+        if (item.state === 'done') continue;
+        statusEl.classList.remove('error');
+        statusEl.textContent = `Generating ${item.card.name}…`;
+        await generateItem(item, { useSaved: true });
+        if (item.state === 'done' && followLatest) selectItem(item);
+        updateProgress();
+      }
+      running = false;
+      updateProgress();
+    }
+
+    deckStart.addEventListener('click', processDeck);
+    deckStop.addEventListener('click', () => {
+      stopRequested = true;
+      deckStop.hidden = true;
+      statusEl.textContent = 'Stopping after the current card…';
+    });
+
+    // A manual click on a tile should stop the auto-follow of newly finished cards.
+    deckGrid.addEventListener('click', () => { followLatest = false; });
+
+    async function openSingleCard(url) {
+      statusEl.textContent = skipArtInput.checked
+        ? 'Fetching card details from Scryfall…'
+        : shouldAutoSwap()
+          ? 'Fetching card details and generating art — may regenerate up to 3 times to get a usable face, so this can take a few minutes…'
+          : 'Fetching card details from Scryfall and generating art (this can take up to a minute)…';
+      singleItem = { card: { scryfallId: null, name: 'Loading card…' }, state: 'queued', el: null };
+      currentItem = singleItem;
+      // Shows saved art for a card that was generated before; "Regenerate art" makes new.
+      await generateItem(singleItem, { useSaved: true, url });
+      await showItem(singleItem);
+      if (singleItem.state === 'error') throw new Error(singleItem.error);
+      rememberLastOpened({ type: 'card', url, scryfallId: singleItem.card.scryfallId });
+      statusEl.textContent = '';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = input.value.trim();
+      if (!url) return;
+      if (running) {
+        statusEl.textContent = 'Wait for the current deck run to stop first.';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      resultEl.hidden = true;
+      deckEl.hidden = true;
+      deckItems = [];
+      region = null;
+      statusEl.classList.remove('error');
+
+      try {
+        if (/archidekt\.com/i.test(url)) {
+          await openDeck(url);
+        } else {
+          await openSingleCard(url);
+        }
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.classList.add('error');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    // Reopen whatever was open before the page was reloaded, from saved data only —
+    // nothing is generated until the user asks.
+    (async function restoreLastOpened() {
+      let last;
+      try { last = JSON.parse(localStorage.getItem(LAST_OPENED_KEY)); } catch {}
+      if (!last?.url) return;
+      input.value = last.url;
+      try {
+        if (last.type === 'deck') {
+          await openDeck(last.url);
+        } else if (last.type === 'card' && last.scryfallId) {
+          const resp = await fetch(`/api/cards/${last.scryfallId}`);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          singleItem = { card: { scryfallId: last.scryfallId, name: data.card.name }, state: 'done', data, el: null };
+          await showItem(singleItem);
+        }
+      } catch (err) {
+        statusEl.textContent = `Couldn't reopen your last ${last.type}: ${err.message}`;
+        statusEl.classList.add('error');
+      }
+    })();
+  </script>
+</body>
+</html>

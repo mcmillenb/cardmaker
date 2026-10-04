@@ -3,5 +3,4 @@ node_modules/
 faceswap-env/
 faceswap-models/
 data/
-public/
 __pycache__/
