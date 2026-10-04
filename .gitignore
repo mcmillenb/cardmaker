@@ -1,0 +1,7 @@
+node_modules/
+.env
+faceswap-env/
+faceswap-models/
+data/
+public/
+__pycache__/
